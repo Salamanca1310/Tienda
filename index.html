@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#0b3d2e">
 <title>Punto de Venta e Inventario</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
   --ink:#0b3d2e;--ink-2:#12513c;--paper:#faf9f6;--card:#ffffff;--line:#e7e5df;--line-2:#d9d7cf;
@@ -201,7 +202,7 @@ body.paper80 .receipt-preview{max-width:360px}
 <!-- VENTAS -->
 <section id="view-ventas" class="view active">
   <div class="scanbar"><button class="scan-btn" onclick="openScanner('venta')">📷 Escanear producto</button></div>
-  <div class="searchrow"><input id="ventaSearch" placeholder="Buscar por nombre o código…" oninput="renderVentaSearch()" autocomplete="off"></div>
+  <div class="searchrow"><input id="ventaSearch" placeholder="Escanea (pistola) o busca por nombre/código…" oninput="renderVentaSearch()" onkeydown="if(event.key==='Enter'){event.preventDefault();ventaEnter();}" autocomplete="off"></div>
   <div id="ventaResults"></div>
   <div class="card" id="cartCard"><div id="cartList"></div></div>
   <div class="totalbar" id="totalbar">
@@ -223,7 +224,7 @@ body.paper80 .receipt-preview{max-width:360px}
     <button class="scan-btn" onclick="openScanner('inventario')">📷 Escanear para agregar</button>
     <button class="scan-btn alt" onclick="openProduct()" style="flex:0 0 auto;padding:14px 18px">＋</button>
   </div>
-  <div class="searchrow"><input id="invSearch" placeholder="Buscar producto…" oninput="renderInventory()" autocomplete="off"></div>
+  <div class="searchrow"><input id="invSearch" placeholder="Escanea (pistola) o busca producto…" oninput="renderInventory()" onkeydown="if(event.key==='Enter'){event.preventDefault();invEnter();}" autocomplete="off"></div>
   <div class="card"><div id="invList"></div></div>
 </section>
 
@@ -288,6 +289,12 @@ body.paper80 .receipt-preview{max-width:360px}
       <div class="hint" id="driveStatus"></div></div>
     <button class="btn dark block" style="margin-bottom:10px" onclick="saveDrive()">Guardar URL de Drive</button>
     <button class="btn primary block" onclick="backupToDrive(false)">☁️ Respaldar en Drive ahora</button>
+  </div>
+
+  <div class="section-title">Reportes en Excel</div>
+  <div class="card pad" style="margin-bottom:16px">
+    <p style="margin:0 0 12px;color:var(--muted);font-size:13.5px">Genera un archivo Excel (.xlsx) con varias hojas: resumen, ventas, detalle por producto, ventas por día, productos más vendidos e inventario.</p>
+    <button class="btn primary block" onclick="generateExcelReport()">📗 Descargar reporte Excel (.xlsx)</button>
   </div>
 
   <div class="section-title">Respaldo manual</div>
@@ -429,7 +436,9 @@ function beep(kind){
 }
 
 /* ================= NAVEGACIÓN ================= */
+let currentView='ventas';
 function showView(v){
+  currentView=v;
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   document.getElementById('view-'+v).classList.add('active');
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
@@ -489,6 +498,39 @@ function renderVentaSearch(){
 }
 function quickAdd(id){const p=DB.products.find(x=>x.id===id);if(p){if(addToCart(p))toast('Agregado: '+p.name);}
   document.getElementById('ventaSearch').value='';renderVentaSearch();}
+
+/* ---- Pistola de escaneo (funciona como teclado + Enter) ---- */
+function ventaEnter(){
+  const el=document.getElementById('ventaSearch');const v=el.value.trim();if(!v)return;
+  let prod=findProduct(v); // código exacto
+  if(!prod){const q=v.toLowerCase();
+    const res=DB.products.filter(p=>p.name.toLowerCase().includes(q)||(p.code&&p.code.toLowerCase().includes(q)));
+    if(res.length===1)prod=res[0];else if(res.length>1)prod=res[0];}
+  if(prod){if(addToCart(prod)){beep('ok');toast('✓ '+prod.name);}else beep('error');}
+  else{beep('error');toast('No encontrado: '+v,true);}
+  el.value='';renderVentaSearch();
+}
+function invEnter(){
+  const el=document.getElementById('invSearch');const v=el.value.trim();if(!v)return;
+  const prod=findProduct(v);
+  if(prod){beep('ok');openProduct(prod);el.value='';renderInventory();toast('Producto existente — edita su stock');return;}
+  if(/^[0-9A-Za-z\-]{5,}$/.test(v)){ // parece código nuevo
+    beep('ok');openProduct();document.getElementById('prodCode').value=v;
+    document.getElementById('prodName').focus();el.value='';renderInventory();toast('Código nuevo — completa los datos');
+  }
+}
+function handleGunScan(code){
+  code=(code||'').trim();if(!code)return;
+  if(currentView==='inventario'){
+    const prod=findProduct(code);beep('ok');
+    if(prod){openProduct(prod);toast('Producto existente — edita su stock');}
+    else{openProduct();document.getElementById('prodCode').value=code;document.getElementById('prodName').focus();toast('Código nuevo — completa los datos');}
+  }else{ // ventas por defecto
+    const prod=findProduct(code);
+    if(prod){if(addToCart(prod)){beep('ok');toast('✓ '+prod.name);}else beep('error');}
+    else{beep('error');toast('No registrado: '+code,true);}
+  }
+}
 
 /* ================= COBRAR / RECIBO ================= */
 function openCobrar(){
@@ -772,6 +814,67 @@ function backupToDrive(silent){
 }
 
 /* ================= RESPALDO MANUAL ================= */
+/* ================= REPORTE EXCEL (.xlsx) ================= */
+function generateExcelReport(){
+  if(typeof XLSX==='undefined'){toast('No se pudo cargar Excel (revisa internet)',true);return;}
+  const wb=XLSX.utils.book_new();
+  const sheet=(name,rows,cols)=>{const ws=XLSX.utils.aoa_to_sheet(rows);if(cols)ws['!cols']=cols;XLSX.utils.book_append_sheet(wb,ws,name);};
+
+  const totalVentas=DB.sales.reduce((s,x)=>s+x.total,0);
+  const nVentas=DB.sales.length;
+  const ticketProm=nVentas?totalVentas/nVentas:0;
+  const totalStock=DB.products.reduce((s,p)=>s+(p.stock||0),0);
+  const valorCosto=DB.products.reduce((s,p)=>s+(p.cost||0)*(p.stock||0),0);
+  const valorVenta=DB.products.reduce((s,p)=>s+(p.price||0)*(p.stock||0),0);
+  const low=Number(DB.config.low)||0;
+
+  sheet('Resumen',[
+    ['REPORTE - '+(DB.config.name||'Tienda')],
+    ['Generado', fmtDate(Date.now())],
+    [],
+    ['VENTAS'],
+    ['Total de ventas (recibos)', nVentas],
+    ['Monto total vendido', totalVentas],
+    ['Ticket promedio', ticketProm],
+    [],
+    ['INVENTARIO'],
+    ['Productos distintos', DB.products.length],
+    ['Unidades en existencia', totalStock],
+    ['Valor a costo', valorCosto],
+    ['Valor a precio de venta', valorVenta],
+    ['Ganancia potencial', valorVenta-valorCosto],
+  ],[{wch:28},{wch:22}]);
+
+  const ventas=[['Recibo','Fecha','Hora','No. Artículos','Total','Efectivo','Cambio']];
+  DB.sales.slice().sort((a,b)=>a.number-b.number).forEach(s=>{const d=new Date(s.ts);
+    ventas.push([s.number,d.toLocaleDateString('es-SV'),d.toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit'}),
+      s.items.reduce((a,i)=>a+i.qty,0),s.total,s.cash||s.total,Math.max(0,(s.cash||s.total)-s.total)]);});
+  sheet('Ventas',ventas,[{wch:9},{wch:12},{wch:8},{wch:13},{wch:10},{wch:10},{wch:10}]);
+
+  const det=[['Recibo','Fecha','Código','Producto','Cantidad','Precio','Subtotal']];
+  DB.sales.slice().sort((a,b)=>a.number-b.number).forEach(s=>{const f=new Date(s.ts).toLocaleDateString('es-SV');
+    s.items.forEach(i=>det.push([s.number,f,i.code||'',i.name,i.qty,i.price,i.price*i.qty]));});
+  sheet('Detalle ventas',det,[{wch:9},{wch:12},{wch:16},{wch:28},{wch:9},{wch:10},{wch:10}]);
+
+  const byDay={};DB.sales.forEach(s=>{const k=dstr(new Date(s.ts));byDay[k]=byDay[k]||{n:0,t:0};byDay[k].n++;byDay[k].t+=s.total;});
+  const dia=[['Fecha','No. Ventas','Total']];Object.keys(byDay).sort().forEach(k=>dia.push([k,byDay[k].n,byDay[k].t]));
+  sheet('Ventas por dia',dia,[{wch:12},{wch:11},{wch:12}]);
+
+  const agg={};DB.sales.forEach(s=>s.items.forEach(i=>{const k=i.code||i.name;agg[k]=agg[k]||{name:i.name,code:i.code||'',qty:0,rev:0};agg[k].qty+=i.qty;agg[k].rev+=i.price*i.qty;}));
+  const top=[['Código','Producto','Unidades vendidas','Ingreso']];
+  Object.values(agg).sort((a,b)=>b.qty-a.qty).forEach(x=>top.push([x.code,x.name,x.qty,x.rev]));
+  sheet('Mas vendidos',top,[{wch:16},{wch:28},{wch:16},{wch:12}]);
+
+  const inv=[['Código','Nombre','Categoría','Precio venta','Precio costo','Existencia','Valor venta','Valor costo','Estado']];
+  DB.products.forEach(p=>{const estado=p.stock<=0?'Agotado':(p.stock<=low?'Stock bajo':'OK');
+    inv.push([p.code||'',p.name,p.cat||'General',p.price,p.cost||0,p.stock,(p.price||0)*(p.stock||0),(p.cost||0)*(p.stock||0),estado]);});
+  sheet('Inventario',inv,[{wch:16},{wch:28},{wch:14},{wch:11},{wch:11},{wch:10},{wch:11},{wch:11},{wch:11}]);
+
+  const fname='reporte_'+(DB.config.name||'tienda').replace(/[^\w]+/g,'_')+'_'+todayStr()+'.xlsx';
+  XLSX.writeFile(wb,fname);
+  toast('Reporte Excel generado ✓');
+}
+
 function download(filename,text,type){
   const blob=new Blob([text],{type:type||'application/json'});
   const url=URL.createObjectURL(blob);const a=document.createElement('a');
@@ -849,6 +952,27 @@ load();applyConfig();renderCart();renderInventory();
 document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)closeSheet(o.id);}));
 // respaldo automático al cerrar / cambiar de app
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&DB.config.drive)backupToDrive(true);});
+
+// ---- Detector de pistola de escaneo (ráfaga de teclas + Enter) ----
+let gunBuf='',gunLast=0;
+document.addEventListener('keydown',e=>{
+  // no interferir si hay una hoja abierta o el escáner de cámara activo
+  if(document.getElementById('ovProduct').classList.contains('open')||
+     document.getElementById('ovCobrar').classList.contains('open')||
+     document.getElementById('scanner').classList.contains('open'))return;
+  // si el foco está en un campo, dejar que su propio manejador (Enter) actúe
+  const ae=document.activeElement;
+  if(ae&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA'||ae.tagName==='SELECT'))return;
+  const now=Date.now();
+  if(now-gunLast>120)gunBuf='';   // ráfaga rápida = pistola; lento = humano
+  gunLast=now;
+  if(e.key==='Enter'){
+    if(gunBuf.length>=3){e.preventDefault();const c=gunBuf;gunBuf='';handleGunScan(c);}
+    else gunBuf='';
+    return;
+  }
+  if(e.key.length===1)gunBuf+=e.key;
+});
 </script>
 </body>
 </html>
