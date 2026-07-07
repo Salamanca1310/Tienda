@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0b3d2e">
 <title>Punto de Venta e Inventario</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
 :root{
   --ink:#0b3d2e;--ink-2:#12513c;--paper:#faf9f6;--card:#ffffff;--line:#e7e5df;--line-2:#d9d7cf;
@@ -160,7 +160,7 @@ nav button:active{background:var(--paper)}
 #receipt .r-mono{white-space:pre}
 #receipt .r-store{font-size:15px;font-weight:800;letter-spacing:.02em}
 #receipt .r-sm{font-size:10.5px}
-#receipt .r-total{white-space:pre;font-size:15px;font-weight:800}
+#receipt .r-total{white-space:pre;font-weight:800}
 #receipt .r-sep{white-space:pre;letter-spacing:-.5px}
 #receipt .sp{height:6px}
 #receipt .r-logo{max-width:62%;display:block;margin:0 auto 5px;image-rendering:crisp-edges}
@@ -182,7 +182,7 @@ nav button:active{background:var(--paper)}
   #printArea .r-mono{white-space:pre}
   #printArea .r-store{font-size:14px;font-weight:800}
   #printArea .r-sm{font-size:10px}
-  #printArea .r-total{white-space:pre;font-size:14px;font-weight:800}
+  #printArea .r-total{white-space:pre;font-weight:800}
   #printArea .r-sep{white-space:pre;letter-spacing:-.5px}
   #printArea .sp{height:5px}
   #printArea .r-logo{max-width:55%;display:block;margin:0 auto 4px}
@@ -814,65 +814,172 @@ function backupToDrive(silent){
 }
 
 /* ================= RESPALDO MANUAL ================= */
-/* ================= REPORTE EXCEL (.xlsx) ================= */
-function generateExcelReport(){
-  if(typeof XLSX==='undefined'){toast('No se pudo cargar Excel (revisa internet)',true);return;}
-  const wb=XLSX.utils.book_new();
-  const sheet=(name,rows,cols)=>{const ws=XLSX.utils.aoa_to_sheet(rows);if(cols)ws['!cols']=cols;XLSX.utils.book_append_sheet(wb,ws,name);};
+/* ================= REPORTE EXCEL (.xlsx) con diseño ================= */
+async function generateExcelReport(){
+  if(typeof ExcelJS==='undefined'){toast('No se pudo cargar Excel (revisa internet)',true);return;}
+  toast('Generando reporte Excel…');
+  try{
+    const wb=new ExcelJS.Workbook();
+    wb.creator=DB.config.name||'Punto de Venta'; wb.created=new Date();
+    const CUR='"$"#,##0.00', INT='#,##0';
+    const INK='FF0B3D2E', EMER='FF059669', BAND='FFEFF6F2', WHITE='FFFFFFFF', MUT='FF6B7280';
+    const AMBER_BG='FFFCEBCF', AMBER_TX='FFB45309', RED_BG='FFFCE1E7', RED_TX='FFBE123C', OK_TX='FF166534';
+    const solid=argb=>({type:'pattern',pattern:'solid',fgColor:{argb}});
+    const thin=()=>({top:{style:'thin',color:{argb:'FFE2E0DA'}},left:{style:'thin',color:{argb:'FFE2E0DA'}},bottom:{style:'thin',color:{argb:'FFE2E0DA'}},right:{style:'thin',color:{argb:'FFE2E0DA'}}});
 
-  const totalVentas=DB.sales.reduce((s,x)=>s+x.total,0);
-  const nVentas=DB.sales.length;
-  const ticketProm=nVentas?totalVentas/nVentas:0;
-  const totalStock=DB.products.reduce((s,p)=>s+(p.stock||0),0);
-  const valorCosto=DB.products.reduce((s,p)=>s+(p.cost||0)*(p.stock||0),0);
-  const valorVenta=DB.products.reduce((s,p)=>s+(p.price||0)*(p.stock||0),0);
-  const low=Number(DB.config.low)||0;
+    function tableSheet(name,title,columns,rows,opts){
+      opts=opts||{};
+      const ws=wb.addWorksheet(name,{views:[{state:'frozen',ySplit:3,showGridLines:false}]});
+      const n=columns.length;
+      ws.mergeCells(1,1,1,n);
+      let c=ws.getCell(1,1);c.value=title;
+      c.font={size:15,bold:true,color:{argb:WHITE}};c.fill=solid(INK);
+      c.alignment={vertical:'middle',horizontal:'left',indent:1};ws.getRow(1).height=30;
+      ws.mergeCells(2,1,2,n);
+      c=ws.getCell(2,1);c.value=(DB.config.name||'Tienda')+'   \u00b7   Generado: '+fmtDate(Date.now());
+      c.font={size:10,italic:true,color:{argb:MUT}};c.alignment={horizontal:'left',indent:1,vertical:'middle'};ws.getRow(2).height=18;
+      const hr=ws.getRow(3);
+      columns.forEach((col,i)=>{
+        const cell=hr.getCell(i+1);cell.value=col.header;
+        cell.font={bold:true,color:{argb:WHITE},size:11};cell.fill=solid(EMER);
+        cell.alignment={vertical:'middle',horizontal:'center',wrapText:true};cell.border=thin();
+        ws.getColumn(i+1).width=col.width||14;
+      });
+      hr.height=24;
+      rows.forEach((r,ri)=>{
+        const row=ws.getRow(4+ri);row.height=18;
+        columns.forEach((col,ci)=>{
+          const cell=row.getCell(ci+1);
+          cell.value=(r[col.key]!==undefined&&r[col.key]!==null)?r[col.key]:'';
+          if(col.fmt)cell.numFmt=col.fmt;
+          cell.alignment={vertical:'middle',horizontal:col.align||'left'};
+          cell.border=thin();
+          if(ri%2===1)cell.fill=solid(BAND);
+          if(col.cond)col.cond(cell,r[col.key]);
+        });
+      });
+      if(opts.totals){
+        const tr=ws.getRow(4+rows.length);tr.height=20;
+        columns.forEach((col,ci)=>{
+          const cell=tr.getCell(ci+1);
+          cell.fill=solid('FFDDEEE6');cell.font={bold:true,color:{argb:INK}};
+          cell.border={top:{style:'medium',color:{argb:INK}}};
+          cell.alignment={vertical:'middle',horizontal:col.align||'left'};
+          if(ci===0)cell.value='TOTAL';
+          if(opts.totals[col.key]!==undefined){cell.value=opts.totals[col.key];if(col.fmt)cell.numFmt=col.fmt;}
+        });
+      }
+      ws.autoFilter={from:{row:3,column:1},to:{row:3,column:n}};
+      return ws;
+    }
 
-  sheet('Resumen',[
-    ['REPORTE - '+(DB.config.name||'Tienda')],
-    ['Generado', fmtDate(Date.now())],
-    [],
-    ['VENTAS'],
-    ['Total de ventas (recibos)', nVentas],
-    ['Monto total vendido', totalVentas],
-    ['Ticket promedio', ticketProm],
-    [],
-    ['INVENTARIO'],
-    ['Productos distintos', DB.products.length],
-    ['Unidades en existencia', totalStock],
-    ['Valor a costo', valorCosto],
-    ['Valor a precio de venta', valorVenta],
-    ['Ganancia potencial', valorVenta-valorCosto],
-  ],[{wch:28},{wch:22}]);
+    const totalVentas=DB.sales.reduce((s,x)=>s+x.total,0);
+    const nVentas=DB.sales.length;
+    const ticketProm=nVentas?totalVentas/nVentas:0;
+    const totalStock=DB.products.reduce((s,p)=>s+(p.stock||0),0);
+    const valorCosto=DB.products.reduce((s,p)=>s+(p.cost||0)*(p.stock||0),0);
+    const valorVenta=DB.products.reduce((s,p)=>s+(p.price||0)*(p.stock||0),0);
+    const low=Number(DB.config.low)||0;
 
-  const ventas=[['Recibo','Fecha','Hora','No. Artículos','Total','Efectivo','Cambio']];
-  DB.sales.slice().sort((a,b)=>a.number-b.number).forEach(s=>{const d=new Date(s.ts);
-    ventas.push([s.number,d.toLocaleDateString('es-SV'),d.toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit'}),
-      s.items.reduce((a,i)=>a+i.qty,0),s.total,s.cash||s.total,Math.max(0,(s.cash||s.total)-s.total)]);});
-  sheet('Ventas',ventas,[{wch:9},{wch:12},{wch:8},{wch:13},{wch:10},{wch:10},{wch:10}]);
+    // Resumen (dashboard)
+    (function(){
+      const ws=wb.addWorksheet('Resumen',{views:[{showGridLines:false}]});
+      ws.getColumn(1).width=3;ws.getColumn(2).width=34;ws.getColumn(3).width=20;ws.getColumn(4).width=3;
+      ws.mergeCells('B2:C2');let c=ws.getCell('B2');c.value='REPORTE DE VENTAS E INVENTARIO';
+      c.font={size:14,bold:true,color:{argb:WHITE}};c.fill=solid(INK);c.alignment={vertical:'middle',horizontal:'center'};ws.getRow(2).height=30;
+      ws.mergeCells('B3:C3');c=ws.getCell('B3');c.value=(DB.config.name||'Tienda')+' \u00b7 '+fmtDate(Date.now());
+      c.font={size:10,italic:true,color:{argb:MUT}};c.alignment={horizontal:'center',vertical:'middle'};ws.getRow(3).height=18;
+      const band=(r,t)=>{ws.mergeCells('B'+r+':C'+r);const x=ws.getCell('B'+r);x.value=t;x.font={bold:true,color:{argb:WHITE},size:11};x.fill=solid(EMER);x.alignment={vertical:'middle',horizontal:'left',indent:1};ws.getRow(r).height=22;};
+      const kpi=(r,label,val,fmt)=>{
+        const l=ws.getCell('B'+r);l.value=label;l.font={color:{argb:'FF374151'}};l.alignment={vertical:'middle',indent:1};l.fill=solid('FFF7FAF8');l.border=thin();
+        const v=ws.getCell('C'+r);v.value=val;if(fmt)v.numFmt=fmt;v.font={bold:true,size:12,color:{argb:INK}};v.alignment={vertical:'middle',horizontal:'right'};v.fill=solid('FFF7FAF8');v.border=thin();
+        ws.getRow(r).height=20;};
+      let r=5;band(r++,'VENTAS');
+      kpi(r++,'Total de ventas (recibos)',nVentas,INT);
+      kpi(r++,'Monto total vendido',totalVentas,CUR);
+      kpi(r++,'Ticket promedio',ticketProm,CUR);
+      r++;band(r++,'INVENTARIO');
+      kpi(r++,'Productos distintos',DB.products.length,INT);
+      kpi(r++,'Unidades en existencia',totalStock,INT);
+      kpi(r++,'Valor a costo',valorCosto,CUR);
+      kpi(r++,'Valor a precio de venta',valorVenta,CUR);
+      kpi(r++,'Ganancia potencial',valorVenta-valorCosto,CUR);
+    })();
 
-  const det=[['Recibo','Fecha','Código','Producto','Cantidad','Precio','Subtotal']];
-  DB.sales.slice().sort((a,b)=>a.number-b.number).forEach(s=>{const f=new Date(s.ts).toLocaleDateString('es-SV');
-    s.items.forEach(i=>det.push([s.number,f,i.code||'',i.name,i.qty,i.price,i.price*i.qty]));});
-  sheet('Detalle ventas',det,[{wch:9},{wch:12},{wch:16},{wch:28},{wch:9},{wch:10},{wch:10}]);
+    // Ventas
+    const ventasRows=DB.sales.slice().sort((a,b)=>a.number-b.number).map(s=>{const d=new Date(s.ts);
+      return {rec:s.number,fecha:d.toLocaleDateString('es-SV'),hora:d.toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit'}),
+        art:s.items.reduce((a,i)=>a+i.qty,0),total:s.total,efe:s.cash||s.total,cam:Math.max(0,(s.cash||s.total)-s.total)};});
+    tableSheet('Ventas','VENTAS POR RECIBO',[
+      {header:'Recibo',key:'rec',width:10,align:'center'},
+      {header:'Fecha',key:'fecha',width:13,align:'center'},
+      {header:'Hora',key:'hora',width:9,align:'center'},
+      {header:'Art\u00edculos',key:'art',width:11,align:'center',fmt:INT},
+      {header:'Total',key:'total',width:12,align:'right',fmt:CUR},
+      {header:'Efectivo',key:'efe',width:12,align:'right',fmt:CUR},
+      {header:'Cambio',key:'cam',width:12,align:'right',fmt:CUR},
+    ],ventasRows,{totals:{total:totalVentas,efe:ventasRows.reduce((s,r)=>s+r.efe,0),cam:ventasRows.reduce((s,r)=>s+r.cam,0)}});
 
-  const byDay={};DB.sales.forEach(s=>{const k=dstr(new Date(s.ts));byDay[k]=byDay[k]||{n:0,t:0};byDay[k].n++;byDay[k].t+=s.total;});
-  const dia=[['Fecha','No. Ventas','Total']];Object.keys(byDay).sort().forEach(k=>dia.push([k,byDay[k].n,byDay[k].t]));
-  sheet('Ventas por dia',dia,[{wch:12},{wch:11},{wch:12}]);
+    // Detalle ventas
+    const detRows=[];DB.sales.slice().sort((a,b)=>a.number-b.number).forEach(s=>{const f=new Date(s.ts).toLocaleDateString('es-SV');
+      s.items.forEach(i=>detRows.push({rec:s.number,fecha:f,cod:i.code||'',prod:i.name,cant:i.qty,precio:i.price,sub:i.price*i.qty}));});
+    tableSheet('Detalle ventas','DETALLE DE VENTAS',[
+      {header:'Recibo',key:'rec',width:10,align:'center'},
+      {header:'Fecha',key:'fecha',width:13,align:'center'},
+      {header:'C\u00f3digo',key:'cod',width:16},
+      {header:'Producto',key:'prod',width:30},
+      {header:'Cant.',key:'cant',width:9,align:'center',fmt:INT},
+      {header:'Precio',key:'precio',width:12,align:'right',fmt:CUR},
+      {header:'Subtotal',key:'sub',width:12,align:'right',fmt:CUR},
+    ],detRows,{totals:{sub:detRows.reduce((s,r)=>s+r.sub,0)}});
 
-  const agg={};DB.sales.forEach(s=>s.items.forEach(i=>{const k=i.code||i.name;agg[k]=agg[k]||{name:i.name,code:i.code||'',qty:0,rev:0};agg[k].qty+=i.qty;agg[k].rev+=i.price*i.qty;}));
-  const top=[['Código','Producto','Unidades vendidas','Ingreso']];
-  Object.values(agg).sort((a,b)=>b.qty-a.qty).forEach(x=>top.push([x.code,x.name,x.qty,x.rev]));
-  sheet('Mas vendidos',top,[{wch:16},{wch:28},{wch:16},{wch:12}]);
+    // Ventas por dia
+    const byDay={};DB.sales.forEach(s=>{const k=dstr(new Date(s.ts));byDay[k]=byDay[k]||{n:0,t:0};byDay[k].n++;byDay[k].t+=s.total;});
+    const diaRows=Object.keys(byDay).sort().map(k=>({fecha:k,n:byDay[k].n,t:byDay[k].t}));
+    tableSheet('Ventas por dia','VENTAS POR D\u00cdA',[
+      {header:'Fecha',key:'fecha',width:14,align:'center'},
+      {header:'No. Ventas',key:'n',width:12,align:'center',fmt:INT},
+      {header:'Total',key:'t',width:14,align:'right',fmt:CUR},
+    ],diaRows,{totals:{t:totalVentas}});
 
-  const inv=[['Código','Nombre','Categoría','Precio venta','Precio costo','Existencia','Valor venta','Valor costo','Estado']];
-  DB.products.forEach(p=>{const estado=p.stock<=0?'Agotado':(p.stock<=low?'Stock bajo':'OK');
-    inv.push([p.code||'',p.name,p.cat||'General',p.price,p.cost||0,p.stock,(p.price||0)*(p.stock||0),(p.cost||0)*(p.stock||0),estado]);});
-  sheet('Inventario',inv,[{wch:16},{wch:28},{wch:14},{wch:11},{wch:11},{wch:10},{wch:11},{wch:11},{wch:11}]);
+    // Mas vendidos
+    const agg={};DB.sales.forEach(s=>s.items.forEach(i=>{const k=i.code||i.name;agg[k]=agg[k]||{cod:i.code||'',prod:i.name,uni:0,ing:0};agg[k].uni+=i.qty;agg[k].ing+=i.price*i.qty;}));
+    const topRows=Object.values(agg).sort((a,b)=>b.uni-a.uni);
+    tableSheet('Mas vendidos','PRODUCTOS M\u00c1S VENDIDOS',[
+      {header:'C\u00f3digo',key:'cod',width:16},
+      {header:'Producto',key:'prod',width:30},
+      {header:'Unidades',key:'uni',width:12,align:'center',fmt:INT},
+      {header:'Ingreso',key:'ing',width:14,align:'right',fmt:CUR},
+    ],topRows,{totals:{ing:topRows.reduce((s,r)=>s+r.ing,0)}});
 
-  const fname='reporte_'+(DB.config.name||'tienda').replace(/[^\w]+/g,'_')+'_'+todayStr()+'.xlsx';
-  XLSX.writeFile(wb,fname);
-  toast('Reporte Excel generado ✓');
+    // Inventario
+    const invRows=DB.products.map(p=>({cod:p.code||'',nom:p.name,cat:p.cat||'General',pv:p.price,pc:p.cost||0,exi:p.stock,
+      vv:(p.price||0)*(p.stock||0),vc:(p.cost||0)*(p.stock||0),
+      est:p.stock<=0?'Agotado':(p.stock<=low?'Stock bajo':'OK')}));
+    const estCond=(cell,val)=>{
+      if(val==='Agotado'){cell.fill=solid(RED_BG);cell.font={bold:true,color:{argb:RED_TX}};}
+      else if(val==='Stock bajo'){cell.fill=solid(AMBER_BG);cell.font={bold:true,color:{argb:AMBER_TX}};}
+      else{cell.font={bold:true,color:{argb:OK_TX}};}
+      cell.alignment={vertical:'middle',horizontal:'center'};};
+    tableSheet('Inventario','INVENTARIO',[
+      {header:'C\u00f3digo',key:'cod',width:16},
+      {header:'Nombre',key:'nom',width:30},
+      {header:'Categor\u00eda',key:'cat',width:14},
+      {header:'P. venta',key:'pv',width:11,align:'right',fmt:CUR},
+      {header:'P. costo',key:'pc',width:11,align:'right',fmt:CUR},
+      {header:'Existencia',key:'exi',width:11,align:'center',fmt:INT},
+      {header:'Valor venta',key:'vv',width:13,align:'right',fmt:CUR},
+      {header:'Valor costo',key:'vc',width:13,align:'right',fmt:CUR},
+      {header:'Estado',key:'est',width:12,align:'center',cond:estCond},
+    ],invRows,{totals:{vv:valorVenta,vc:valorCosto}});
+
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');
+    a.href=url;a.download='reporte_'+(DB.config.name||'tienda').replace(/[^\w]+/g,'_')+'_'+todayStr()+'.xlsx';a.click();
+    URL.revokeObjectURL(url);
+    toast('Reporte Excel generado \u2713');
+  }catch(e){console.error(e);toast('Error al generar el reporte',true);}
 }
 
 function download(filename,text,type){
