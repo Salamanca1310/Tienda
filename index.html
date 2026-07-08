@@ -132,6 +132,17 @@ nav button:active{background:var(--paper)}
 .field input,.field select{width:100%;padding:13px 14px;border:1.5px solid var(--line-2);border-radius:11px;background:var(--paper)}
 .field input:focus,.field select:focus{outline:none;border-color:var(--emerald);background:#fff}
 .field .hint{font-size:11.5px;color:var(--muted);margin-top:5px;text-transform:none;letter-spacing:0;font-weight:400;line-height:1.4}
+.cat-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;background:var(--paper)}
+.cat-row span{font-weight:600;font-size:14px}
+.cat-row button{width:28px;height:28px;border-radius:7px;background:var(--danger-bg);color:var(--danger);font-size:18px;font-weight:700;display:grid;place-items:center}
+.lock{position:fixed;inset:0;z-index:100;background:var(--ink);display:none;align-items:center;justify-content:center;padding:24px}
+.lock.open{display:flex}
+.lock-box{background:var(--card);border-radius:20px;padding:28px 22px;max-width:360px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+.lock-logo{font-size:40px;margin-bottom:8px}
+.lock-box h2{font-size:20px;margin-bottom:4px}
+.lock-box p{color:var(--muted);font-size:14px;margin:6px 0 18px}
+.lock-box input{width:100%;padding:14px;border:1.5px solid var(--line-2);border-radius:12px;background:var(--paper);text-align:center;font-size:22px;letter-spacing:6px;margin-bottom:12px}
+.lock-box input:focus{outline:none;border-color:var(--emerald);background:#fff}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
 .scanner{position:fixed;inset:0;z-index:80;background:#000;display:none;flex-direction:column}
@@ -194,9 +205,10 @@ body.paper80 .receipt-preview{max-width:360px}
 
 <header>
   <div class="logo">🛒</div>
-  <div class="brand"><b id="hdrName">Mi Tienda</b><span>Punto de venta</span></div>
+  <div class="brand"><b id="hdrName">Mi Tienda</b><span id="hdrSub">Punto de venta</span></div>
   <div class="grow"></div>
-  <button class="hbtn" onclick="showView('config')" title="Configuración">⚙️</button>
+  <button class="hbtn hidden" onclick="lockApp()" id="lockBtn" title="Bloquear / cambiar usuario">🔒</button>
+  <button class="hbtn" onclick="showView('config')" id="cfgBtn" title="Configuración">⚙️</button>
 </header>
 
 <!-- VENTAS -->
@@ -291,6 +303,39 @@ body.paper80 .receipt-preview{max-width:360px}
     <button class="btn primary block" onclick="backupToDrive(false)">☁️ Respaldar en Drive ahora</button>
   </div>
 
+  <div class="section-title">Seguridad y acceso</div>
+  <div class="card pad" style="margin-bottom:16px">
+    <div class="field"><label>PIN de administrador</label>
+      <input id="cfgPin" inputmode="numeric" placeholder="Vacío = sin login">
+      <div class="hint">Si defines un PIN, al abrir la app se pedirá acceso. El <b>Cajero</b> entra sin PIN pero solo puede Vender e Historial; Inventario, reportes y Ajustes son solo del <b>Administrador</b>.</div></div>
+    <button class="btn primary block" onclick="savePin()">Guardar PIN</button>
+  </div>
+
+  <div class="section-title">Respaldo automático en esta PC</div>
+  <div class="card pad" style="margin-bottom:16px">
+    <p style="margin:0 0 12px;color:var(--muted);font-size:13.5px">Elige un archivo en tu computadora y la app guardará <b>toda la información automáticamente</b> ahí cada vez que cambie algo (ventas, inventario, movimientos). Solo funciona en Chrome/Edge de computadora.</p>
+    <div class="hint" id="localStatus" style="margin-bottom:12px"></div>
+    <button class="btn dark block" style="margin-bottom:10px" onclick="chooseLocalBackup()">💾 Elegir archivo de respaldo local</button>
+    <button class="btn ghost block" style="margin-bottom:10px" onclick="reactivateLocal()" id="reactivateBtn">🔓 Reactivar respaldo local</button>
+    <button class="btn ghost block" onclick="disableLocal()">Desactivar</button>
+  </div>
+
+  <div class="section-title">Kardex</div>
+  <div class="card pad" style="margin-bottom:16px">
+    <p style="margin:0 0 12px;color:var(--muted);font-size:13.5px">Registra la existencia actual de todos los productos como <b>entrada inicial</b> en el Kardex. Hazlo una sola vez, al empezar a usar el sistema.</p>
+    <button class="btn primary block" onclick="registerOpeningStock()">📥 Registrar existencia inicial</button>
+  </div>
+
+  <div class="section-title">Categorías</div>
+  <div class="card pad" style="margin-bottom:16px">
+    <p style="margin:0 0 12px;color:var(--muted);font-size:13.5px">Estas categorías aparecen como lista desplegable al crear o editar productos.</p>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <input id="newCat" placeholder="Nueva categoría…" onkeydown="if(event.key==='Enter'){event.preventDefault();addCategory();}" style="flex:1;padding:12px 14px;border:1.5px solid var(--line-2);border-radius:11px;background:var(--paper)">
+      <button class="btn dark sm" onclick="addCategory()">Agregar</button>
+    </div>
+    <div id="catList"></div>
+  </div>
+
   <div class="section-title">Reportes en Excel</div>
   <div class="card pad" style="margin-bottom:16px">
     <p style="margin:0 0 12px;color:var(--muted);font-size:13.5px">Genera un archivo Excel (.xlsx) con varias hojas: resumen, ventas, detalle por producto, ventas por día, productos más vendidos e inventario.</p>
@@ -337,7 +382,7 @@ body.paper80 .receipt-preview{max-width:360px}
       </div>
       <div class="two">
         <div class="field"><label>Existencia (stock)</label><input id="prodStock" type="number" inputmode="numeric" placeholder="0"></div>
-        <div class="field"><label>Categoría</label><input id="prodCat" placeholder="General"></div>
+        <div class="field"><label>Categoría</label><select id="prodCat"></select></div>
       </div>
       <button class="btn primary block" style="margin-bottom:10px" onclick="saveProduct()">Guardar producto</button>
       <button class="btn danger block hidden" id="delProdBtn" onclick="deleteProduct()">Eliminar producto</button>
@@ -377,6 +422,25 @@ body.paper80 .receipt-preview{max-width:360px}
 <div class="scan-toast" id="toast"></div>
 <div id="printArea"></div>
 
+<!-- LOGIN / BLOQUEO -->
+<div class="lock" id="lockScreen">
+  <div class="lock-box">
+    <div class="lock-logo">🔒</div>
+    <h2 id="lockTitle">Punto de Venta</h2>
+    <div id="lockRole">
+      <p>¿Cómo deseas entrar?</p>
+      <button class="btn primary block" onclick="askAdmin()">👤 Administrador</button>
+      <button class="btn ghost block" style="margin-top:10px" onclick="enterCajero()">🧾 Cajero</button>
+    </div>
+    <div id="lockPin" class="hidden">
+      <p>Ingresa el PIN de administrador</p>
+      <input id="pinInput" type="password" inputmode="numeric" placeholder="••••" onkeydown="if(event.key==='Enter')checkAdmin()">
+      <button class="btn primary block" onclick="checkAdmin()">Entrar</button>
+      <button class="btn ghost block" style="margin-top:10px" onclick="backLockRole()">← Volver</button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ================= ALMACENAMIENTO ================= */
 const KEY='pos_data_v1';
@@ -384,7 +448,7 @@ const DEFAULT_LOGO='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAASwAAAEVAQAAAA
 let DB={products:[],sales:[],config:{},counter:0};
 function load(){
   try{const raw=localStorage.getItem(KEY);if(raw)DB=JSON.parse(raw);}catch(e){}
-  DB.products=DB.products||[];DB.sales=DB.sales||[];DB.config=DB.config||{};DB.counter=DB.counter||0;
+  DB.products=DB.products||[];DB.sales=DB.sales||[];DB.config=DB.config||{};DB.counter=DB.counter||0;DB.movements=DB.movements||[];
   const c=DB.config;
   c.name=c.name||'Tienda Mary';c.curr=c.curr||'$';c.paper=c.paper||'58';
   c.low=(c.low!==undefined)?c.low:5;c.footer=c.footer||'¡Gracias por su compra!';
@@ -394,8 +458,26 @@ function load(){
   c.phone=(c.phone!==undefined)?c.phone:'2654-0000';
   c.web=(c.web!==undefined)?c.web:'Productos Únicos';
   c.logo=(c.logo!==undefined)?c.logo:DEFAULT_LOGO;
+  if(!Array.isArray(c.categories)){const set=new Set();DB.products.forEach(p=>{if(p.cat)set.add(p.cat);});if(!set.size)set.add('General');c.categories=Array.from(set);}
+  // categorías (lista administrable)
+  if(!c.categories){
+    const uniq=[...new Set(DB.products.map(p=>(p.cat||'').trim()).filter(Boolean))];
+    c.categories=uniq.length?uniq.sort():['General'];
+  }
+  // movimientos de inventario (kardex)
+  DB.movements=DB.movements||[];
+  if(!DB.migratedMov){
+    const sold={};
+    DB.sales.forEach(s=>s.items.forEach(i=>{const k=i.code||('n:'+i.name);sold[k]=(sold[k]||0)+i.qty;}));
+    DB.products.forEach(p=>{
+      const k=p.code||('n:'+p.name);
+      const init=(p.stock||0)+(sold[k]||0);
+      if(init>0)DB.movements.push({id:uid(),ts:Date.now(),code:p.code||'',name:p.name,type:'entrada',qty:init,reason:'Inventario inicial'});
+    });
+    DB.migratedMov=true;
+  }
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(DB));}catch(e){}scheduleLocalBackup();}
 
 /* ================= UTILIDADES ================= */
 function money(n){const c=DB.config.curr||'$';return c+(Number(n)||0).toFixed(2);}
@@ -437,7 +519,9 @@ function beep(kind){
 
 /* ================= NAVEGACIÓN ================= */
 let currentView='ventas';
+let role='admin';
 function showView(v){
+  if(role!=='admin'&&(v==='inventario'||v==='config')){toast('Acceso solo para administrador',true);return;}
   currentView=v;
   document.querySelectorAll('.view').forEach(x=>x.classList.remove('active'));
   document.getElementById('view-'+v).classList.add('active');
@@ -618,8 +702,10 @@ function finishSale(){
   if(!cart.length)return;
   const total=cart.reduce((s,c)=>s+c.price*c.qty,0);
   const cash=parseFloat(document.getElementById('payCash').value)||0;
-  cart.forEach(ci=>{const p=DB.products.find(x=>x.id===ci.id);if(p)p.stock=Math.max(0,p.stock-ci.qty);});
   DB.counter++;
+  const recibo='#'+String(DB.counter).padStart(5,'0');
+  cart.forEach(ci=>{const p=DB.products.find(x=>x.id===ci.id);
+    if(p){p.stock=Math.max(0,p.stock-ci.qty);logMove('salida',p.code,p.name,ci.qty,'Venta',recibo,p.stock);}});
   DB.sales.unshift({id:uid(),number:DB.counter,ts:Date.now(),total,cash:cash||total,
     items:cart.map(c=>({name:c.name,code:c.code,price:c.price,qty:c.qty}))});
   save();
@@ -638,9 +724,16 @@ function openProduct(prod){
   document.getElementById('prodPrice').value=prod?prod.price:'';
   document.getElementById('prodCost').value=prod?(prod.cost||''):'';
   document.getElementById('prodStock').value=prod?prod.stock:'';
-  document.getElementById('prodCat').value=prod?(prod.cat||''):'';
+  fillCatSelect(prod?(prod.cat||''):((DB.config.categories&&DB.config.categories[0])||'General'));
   document.getElementById('delProdBtn').classList.toggle('hidden',!prod);
   document.getElementById('ovProduct').classList.add('open');
+}
+function fillCatSelect(selected){
+  const sel=document.getElementById('prodCat');
+  const cats=(DB.config.categories||[]).slice();
+  if(selected&&!cats.includes(selected))cats.unshift(selected);
+  if(!cats.length)cats.push('General');
+  sel.innerHTML=cats.map(c=>`<option value="${esc(c)}"${c===selected?' selected':''}>${esc(c)}</option>`).join('');
 }
 function saveProduct(){
   const id=document.getElementById('prodId').value;
@@ -654,9 +747,22 @@ function saveProduct(){
     cost:parseFloat(document.getElementById('prodCost').value)||0,
     stock:parseInt(document.getElementById('prodStock').value)||0,
     cat:document.getElementById('prodCat').value.trim()||'General'};
-  if(id){Object.assign(DB.products.find(p=>p.id===id),data);}
-  else{DB.products.unshift({id:uid(),...data});}
+  if(id){
+    const existing=DB.products.find(p=>p.id===id);
+    const before=existing.stock||0;
+    Object.assign(existing,data);
+    const diff=data.stock-before;
+    if(diff>0)logMove('entrada',data.code,data.name,diff,'Ajuste/Ingreso','',data.stock);
+    else if(diff<0)logMove('salida',data.code,data.name,-diff,'Ajuste/Merma','',data.stock);
+  }else{
+    DB.products.unshift({id:uid(),...data});
+    if(data.stock>0)logMove('entrada',data.code,data.name,data.stock,'Alta de producto','',data.stock);
+  }
   save();closeSheet('ovProduct');renderInventory();toast('Producto guardado ✓');
+}
+function logMove(type,code,name,qty,reason,ref,stockAfter){
+  DB.movements.unshift({id:uid(),ts:Date.now(),type,code:code||'',name,qty,reason:reason||'',ref:ref||'',stockAfter});
+  if(DB.movements.length>5000)DB.movements.length=5000; // límite de seguridad
 }
 function deleteProduct(){
   const id=document.getElementById('prodId').value;if(!id)return;
@@ -734,7 +840,25 @@ function fillConfig(){
   document.getElementById('cfgIvaRate').value=c.ivaRate!==undefined?c.ivaRate:13;
   document.getElementById('cfgSound').value=c.sound||'si';
   document.getElementById('cfgDrive').value=c.drive||'';
-  updateDriveStatus();showLogoPrev();
+  document.getElementById('cfgPin').value=c.adminPin||'';
+  updateDriveStatus();showLogoPrev();renderCategories();updateLocalStatus();
+}
+function renderCategories(){
+  const el=document.getElementById('catList');if(!el)return;
+  const cats=DB.config.categories||[];
+  if(!cats.length){el.innerHTML='<div class="hint">Sin categorías. Agrega la primera arriba.</div>';return;}
+  el.innerHTML=cats.map((c,i)=>`<div class="cat-row"><span>${esc(c)}</span><button onclick="removeCategory(${i})" title="Quitar">×</button></div>`).join('');
+}
+function addCategory(){
+  const inp=document.getElementById('newCat');const v=inp.value.trim();if(!v)return;
+  DB.config.categories=DB.config.categories||[];
+  if(DB.config.categories.some(c=>c.toLowerCase()===v.toLowerCase())){toast('Esa categoría ya existe',true);return;}
+  DB.config.categories.push(v);save();inp.value='';renderCategories();toast('Categoría agregada ✓');
+}
+function removeCategory(i){
+  const cats=DB.config.categories||[];const name=cats[i];if(name===undefined)return;
+  if(!confirm('¿Quitar la categoría "'+name+'"? Los productos que ya la usan la conservarán.'))return;
+  cats.splice(i,1);save();renderCategories();
 }
 function processLogo(ev){
   const file=ev.target.files[0];if(!file)return;
@@ -973,6 +1097,40 @@ async function generateExcelReport(){
       {header:'Estado',key:'est',width:12,align:'center',cond:estCond},
     ],invRows,{totals:{vv:valorVenta,vc:valorCosto}});
 
+    // Movimientos (entradas y salidas)
+    const movRows=DB.movements.slice().sort((a,b)=>a.ts-b.ts).map(m=>{const d=new Date(m.ts);
+      return {fecha:d.toLocaleDateString('es-SV'),hora:d.toLocaleTimeString('es-SV',{hour:'2-digit',minute:'2-digit'}),
+        tipo:m.type==='entrada'?'Entrada':'Salida',cod:m.code||'',prod:m.name,cant:m.qty,motivo:m.reason||'',ref:m.ref||'',exi:m.stockAfter};});
+    const tipoCond=(cell,val)=>{
+      if(val==='Entrada'){cell.fill=solid('FFE7F6EC');cell.font={bold:true,color:{argb:OK_TX}};}
+      else{cell.fill=solid('FFFCE1E7');cell.font={bold:true,color:{argb:RED_TX}};}
+      cell.alignment={vertical:'middle',horizontal:'center'};};
+    tableSheet('Movimientos','MOVIMIENTOS (ENTRADAS Y SALIDAS)',[
+      {header:'Fecha',key:'fecha',width:13,align:'center'},
+      {header:'Hora',key:'hora',width:9,align:'center'},
+      {header:'Tipo',key:'tipo',width:11,align:'center',cond:tipoCond},
+      {header:'C\u00f3digo',key:'cod',width:16},
+      {header:'Producto',key:'prod',width:30},
+      {header:'Cantidad',key:'cant',width:11,align:'center',fmt:INT},
+      {header:'Motivo',key:'motivo',width:18},
+      {header:'Referencia',key:'ref',width:13,align:'center'},
+      {header:'Existencia',key:'exi',width:11,align:'center',fmt:INT},
+    ],movRows);
+
+    // Kardex (resumen por producto)
+    const kx={};
+    DB.products.forEach(p=>{const k=p.code||p.name;kx[k]={cod:p.code||'',nom:p.name,ent:0,sal:0,exi:p.stock};});
+    DB.movements.forEach(m=>{const k=m.code||m.name;if(!kx[k])kx[k]={cod:m.code||'',nom:m.name,ent:0,sal:0,exi:0};
+      if(m.type==='entrada')kx[k].ent+=m.qty;else kx[k].sal+=m.qty;});
+    const kxRows=Object.values(kx).sort((a,b)=>a.nom.localeCompare(b.nom));
+    tableSheet('Kardex','KARDEX POR PRODUCTO',[
+      {header:'C\u00f3digo',key:'cod',width:16},
+      {header:'Producto',key:'nom',width:30},
+      {header:'Entradas',key:'ent',width:12,align:'center',fmt:INT},
+      {header:'Salidas',key:'sal',width:12,align:'center',fmt:INT},
+      {header:'Existencia actual',key:'exi',width:16,align:'center',fmt:INT},
+    ],kxRows,{totals:{ent:kxRows.reduce((s,r)=>s+r.ent,0),sal:kxRows.reduce((s,r)=>s+r.sal,0),exi:kxRows.reduce((s,r)=>s+r.exi,0)}});
+
     const buf=await wb.xlsx.writeBuffer();
     const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');
@@ -1054,11 +1212,119 @@ function closeScanner(){
   s.classList.remove('open');
 }
 
+/* ================= LOGIN / PERMISOS ================= */
+function initAuth(){
+  document.getElementById('lockBtn').classList.toggle('hidden',!DB.config.adminPin);
+  if(DB.config.adminPin){role='cajero';showLock();}
+  else{role='admin';applyRole();}
+}
+function showLock(){
+  document.getElementById('lockTitle').textContent=DB.config.name||'Punto de Venta';
+  document.getElementById('lockRole').classList.remove('hidden');
+  document.getElementById('lockPin').classList.add('hidden');
+  document.getElementById('pinInput').value='';
+  document.getElementById('lockScreen').classList.add('open');
+}
+function askAdmin(){
+  document.getElementById('lockRole').classList.add('hidden');
+  document.getElementById('lockPin').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('pinInput').focus(),50);
+}
+function backLockRole(){
+  document.getElementById('lockPin').classList.add('hidden');
+  document.getElementById('lockRole').classList.remove('hidden');
+}
+function checkAdmin(){
+  const v=document.getElementById('pinInput').value.trim();
+  if(v===DB.config.adminPin){role='admin';document.getElementById('lockScreen').classList.remove('open');applyRole();toast('Bienvenido, administrador');}
+  else{toast('PIN incorrecto',true);document.getElementById('pinInput').value='';}
+}
+function enterCajero(){role='cajero';document.getElementById('lockScreen').classList.remove('open');applyRole();toast('Modo cajero');}
+function lockApp(){if(DB.config.adminPin){role='cajero';showLock();}}
+function applyRole(){
+  const admin=role==='admin';
+  document.querySelector('nav button[data-view="inventario"]').style.display=admin?'':'none';
+  document.querySelector('nav button[data-view="config"]').style.display=admin?'':'none';
+  document.getElementById('cfgBtn').style.display=admin?'':'none';
+  document.getElementById('hdrSub').textContent=DB.config.adminPin?(admin?'Administrador':'Cajero'):'Punto de venta';
+  if(!admin&&(currentView==='inventario'||currentView==='config'))showView('ventas');
+}
+function savePin(){
+  DB.config.adminPin=document.getElementById('cfgPin').value.trim();
+  save();document.getElementById('lockBtn').classList.toggle('hidden',!DB.config.adminPin);
+  applyRole();
+  toast(DB.config.adminPin?'PIN guardado — login activado ✓':'PIN quitado — sin login');
+}
+
+/* ================= EXISTENCIA INICIAL (Kardex) ================= */
+function registerOpeningStock(){
+  const conProd=DB.products.filter(p=>(p.stock||0)>0);
+  if(!conProd.length){toast('No hay productos con existencia',true);return;}
+  const yaHecho=DB.config.openingDone;
+  const msg=yaHecho?'Ya registraste existencia inicial antes. Registrar de nuevo puede DUPLICAR las entradas. ¿Continuar?'
+    :('Se registrarán '+conProd.length+' productos con su existencia actual como entrada inicial en el Kardex. ¿Continuar?');
+  if(!confirm(msg))return;
+  conProd.forEach(p=>logMove('entrada',p.code,p.name,p.stock,'Existencia inicial','',p.stock));
+  DB.config.openingDone=true;save();
+  toast('Existencia inicial registrada ✓ ('+conProd.length+' productos)');
+}
+
+/* ================= RESPALDO LOCAL EN LA PC (File System Access) ================= */
+let localHandle=null,localTimer=null,lastLocalTime='';
+const FS_OK=('showSaveFilePicker'in window);
+function idbOpen(){return new Promise((res,rej)=>{const r=indexedDB.open('posdb',1);
+  r.onupgradeneeded=()=>{r.result.createObjectStore('kv');};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
+async function idbSet(k,v){const db=await idbOpen();return new Promise((res,rej)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').put(v,k);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}
+async function idbGet(k){const db=await idbOpen();return new Promise((res,rej)=>{const tx=db.transaction('kv','readonly');const g=tx.objectStore('kv').get(k);g.onsuccess=()=>res(g.result);g.onerror=()=>rej(g.error);});}
+async function idbDel(k){const db=await idbOpen();return new Promise((res,rej)=>{const tx=db.transaction('kv','readwrite');tx.objectStore('kv').delete(k);tx.oncomplete=()=>res();tx.onerror=()=>rej(tx.error);});}
+async function ensurePerm(h){if(!h)return false;try{
+  if((await h.queryPermission({mode:'readwrite'}))==='granted')return true;
+  if((await h.requestPermission({mode:'readwrite'}))==='granted')return true;}catch(e){}return false;}
+async function chooseLocalBackup(){
+  if(!FS_OK){toast('Tu navegador no permite guardar en la PC. Usa Chrome/Edge en computadora.',true);return;}
+  try{
+    const h=await window.showSaveFilePicker({suggestedName:'respaldo_'+(DB.config.name||'pos').replace(/[^\w]+/g,'_')+'.json',
+      types:[{description:'Respaldo JSON',accept:{'application/json':['.json']}}]});
+    localHandle=h;try{await idbSet('localHandle',h);}catch(e){}
+    await writeLocalBackup(true);updateLocalStatus();toast('Respaldo local activado ✓');
+  }catch(e){if(e&&e.name!=='AbortError')toast('No se pudo activar el respaldo local',true);}
+}
+async function reactivateLocal(){
+  if(!localHandle){try{localHandle=await idbGet('localHandle');}catch(e){}}
+  if(!localHandle){toast('Primero elige un archivo de respaldo',true);return;}
+  if(await ensurePerm(localHandle)){await writeLocalBackup(true);updateLocalStatus();toast('Respaldo local reactivado ✓');}
+  else toast('Permiso denegado',true);
+}
+async function disableLocal(){localHandle=null;try{await idbDel('localHandle');}catch(e){}updateLocalStatus();toast('Respaldo local desactivado');}
+async function writeLocalBackup(force){
+  if(!localHandle)return;
+  try{
+    if(force){if(!(await ensurePerm(localHandle)))return;}
+    else{if((await localHandle.queryPermission({mode:'readwrite'}))!=='granted')return;}
+    const w=await localHandle.createWritable();
+    await w.write(JSON.stringify(DB,null,2));await w.close();
+    lastLocalTime=new Date().toLocaleString('es-SV');updateLocalStatus();
+  }catch(e){console.warn('respaldo local',e);}
+}
+function scheduleLocalBackup(){if(!localHandle)return;clearTimeout(localTimer);localTimer=setTimeout(()=>writeLocalBackup(false),1500);}
+function updateLocalStatus(){
+  const el=document.getElementById('localStatus');if(!el)return;
+  if(!FS_OK){el.innerHTML='⚠️ Este navegador no admite guardar en la PC (usa Chrome/Edge de computadora). En móvil sigue el respaldo en Drive.';return;}
+  if(!localHandle){el.textContent='Sin activar. Elige un archivo para guardar todo automáticamente en tu PC.';return;}
+  el.textContent='Activo ✓'+(lastLocalTime?('  ·  Último guardado: '+lastLocalTime):'  ·  se guardará al cambiar algo.');
+}
+async function initLocalBackup(){
+  if(!FS_OK){updateLocalStatus();return;}
+  try{const h=await idbGet('localHandle');if(h){localHandle=h;updateLocalStatus();}}catch(e){}
+  updateLocalStatus();
+}
+
 /* ================= INICIO ================= */
 load();applyConfig();renderCart();renderInventory();
+initAuth();initLocalBackup();
 document.querySelectorAll('.overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)closeSheet(o.id);}));
 // respaldo automático al cerrar / cambiar de app
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&DB.config.drive)backupToDrive(true);});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){if(DB.config.drive)backupToDrive(true);writeLocalBackup(false);}});
 
 // ---- Detector de pistola de escaneo (ráfaga de teclas + Enter) ----
 let gunBuf='',gunLast=0;
